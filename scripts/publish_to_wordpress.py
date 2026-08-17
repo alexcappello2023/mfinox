@@ -85,7 +85,9 @@ def categorie_richieste(meta: dict, override: str | None) -> list[str]:
     return [str(v).strip() for v in valore if str(v).strip()]
 
 
-def risolvi_categorie(nomi: list[str], base_url: str, auth: tuple[str, str]) -> list[int]:
+def risolvi_categorie(
+    nomi: list[str], base_url: str, auth: tuple[str, str], lingua: dict | None = None
+) -> list[int]:
     """Traduce i nomi di categoria negli ID numerici che l'API richiede.
 
     WordPress accetta solo ID. I nomi si risolvono per nome esatto o per slug,
@@ -101,7 +103,11 @@ def risolvi_categorie(nomi: list[str], base_url: str, auth: tuple[str, str]) -> 
     def interroga(parametri: dict) -> list[dict]:
         try:
             risposta = requests.get(
-                endpoint, params=parametri, auth=auth, timeout=TIMEOUT, headers=intestazioni
+                endpoint,
+                params={**(lingua or {}), **parametri},
+                auth=auth,
+                timeout=TIMEOUT,
+                headers=intestazioni,
             )
             risposta.raise_for_status()
             return risposta.json()
@@ -133,6 +139,24 @@ def risolvi_categorie(nomi: list[str], base_url: str, auth: tuple[str, str]) -> 
 
 
 TUTTI_GLI_STATI = "publish,draft,pending,private,future"
+
+
+def parametri_lingua(meta: dict) -> dict:
+    """Parametro di lingua da accodare alle chiamate REST.
+
+    Sui siti multilingua i termini di tassonomia sono legati a una lingua. Una
+    chiamata REST che non la dichiara può vedersi scartare l'assegnazione di
+    categoria senza alcun errore: WordPress risponde 200 e restituisce
+    `categories` vuoto. Dichiararla esplicitamente è il tentativo più diretto.
+
+    Se il sito non è multilingua il parametro viene semplicemente ignorato,
+    quindi è innocuo. WP_LANG permette di sovrascriverlo o di disattivarlo
+    impostandolo a stringa vuota.
+    """
+    lingua = os.environ.get("WP_LANG")
+    if lingua is None:
+        lingua = str(meta.get("lingua") or "").strip()
+    return {"lang": lingua} if lingua else {}
 
 
 def articolo_esistente(meta: dict, base_url: str, auth: tuple[str, str]) -> dict | None:
@@ -203,7 +227,7 @@ def allinea_categorie(
 
     utente, password = credenziali()
     auth = (utente, password)
-    attesi = set(risolvi_categorie(nomi, base_url, auth))
+    attesi = set(risolvi_categorie(nomi, base_url, auth, parametri_lingua(meta)))
     attuali = set(post.get("categories") or [])
 
     if attesi.issubset(attuali):
@@ -214,6 +238,7 @@ def allinea_categorie(
     try:
         risposta = requests.post(
             endpoint,
+            params=parametri_lingua(meta),
             json={"categories": unione},
             auth=auth,
             timeout=TIMEOUT,
@@ -273,13 +298,16 @@ def pubblica(
         return {**esistente, "saltato": True}
 
     if nomi_categorie:
-        ids = risolvi_categorie(nomi_categorie, base_url, (utente, password))
+        ids = risolvi_categorie(
+            nomi_categorie, base_url, (utente, password), parametri_lingua(meta)
+        )
         payload["categories"] = ids
         print(f"Categorie risolte: {', '.join(nomi_categorie)} → {ids}")
 
     try:
         risposta = requests.post(
             endpoint,
+            params=parametri_lingua(meta),
             json=payload,
             auth=(utente, password),
             timeout=TIMEOUT,
