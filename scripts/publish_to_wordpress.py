@@ -74,8 +74,73 @@ def credenziali() -> tuple[str, str]:
     return utente, password
 
 
-def pubblica(meta: dict, corpo: str, base_url: str, stato: str, dry_run: bool) -> dict:
+def categorie_richieste(meta: dict, override: str | None) -> list[str]:
+    """Nomi di categoria da assegnare: l'opzione da riga di comando vince."""
+    valore = override if override else meta.get("categoria")
+    if not valore:
+        return []
+    if isinstance(valore, str):
+        valore = valore.split(",")
+    return [str(v).strip() for v in valore if str(v).strip()]
+
+
+def risolvi_categorie(nomi: list[str], base_url: str, auth: tuple[str, str]) -> list[int]:
+    """Traduce i nomi di categoria negli ID numerici che l'API richiede.
+
+    WordPress accetta solo ID. I nomi si risolvono per nome esatto o per slug,
+    ignorando maiuscole: così nel front matter si scrive "News" e non un numero
+    che cambierebbe da un sito all'altro.
+    """
+    if not nomi:
+        return []
+
+    endpoint = f"{base_url.rstrip('/')}/wp-json/wp/v2/categories"
+    intestazioni = {"User-Agent": "mfinox-editorial-bot/1.0"}
+
+    def interroga(parametri: dict) -> list[dict]:
+        try:
+            risposta = requests.get(
+                endpoint, params=parametri, auth=auth, timeout=TIMEOUT, headers=intestazioni
+            )
+            risposta.raise_for_status()
+            return risposta.json()
+        except requests.RequestException as exc:
+            raise ErroreFatale(f"Lettura delle categorie da {endpoint} fallita: {exc}") from exc
+
+    ids: list[int] = []
+    for nome in nomi:
+        atteso = nome.casefold()
+        candidate = interroga({"search": nome, "per_page": 100})
+        trovata = next(
+            (
+                c
+                for c in candidate
+                if c.get("name", "").casefold() == atteso or c.get("slug", "").casefold() == atteso
+            ),
+            None,
+        )
+        if trovata is None:
+            tutte = interroga({"per_page": 100, "orderby": "name"})
+            elenco = ", ".join(f"{c['name']} ({c['slug']})" for c in tutte) or "nessuna"
+            raise ErroreFatale(
+                f"Categoria «{nome}» non trovata su {base_url}. Categorie disponibili: {elenco}. "
+                "Nei siti multilingua le categorie sono separate per lingua: verifica di usare "
+                "quella della lingua in cui pubblichi."
+            )
+        ids.append(int(trovata["id"]))
+    return ids
+
+
+def pubblica(
+    meta: dict,
+    corpo: str,
+    base_url: str,
+    stato: str,
+    dry_run: bool,
+    categoria: str | None = None,
+) -> dict:
     endpoint = f"{base_url.rstrip('/')}/wp-json/wp/v2/posts"
+    nomi_categorie = categorie_richieste(meta, categoria)
 
     payload: dict[str, object] = {
         "title": meta["titolo"],
@@ -93,10 +158,16 @@ def pubblica(meta: dict, corpo: str, base_url: str, stato: str, dry_run: bool) -
         print(f"  titolo   : {payload['title']}")
         print(f"  slug     : {payload.get('slug', '(generato da WordPress)')}")
         print(f"  stato    : {stato}")
+        print(f"  categorie: {', '.join(nomi_categorie) or '(nessuna)'} — risolte in ID al momento della pubblicazione")
         print(f"  caratteri: {len(corpo)}")
         return {"id": None, "link": None, "dry_run": True}
 
     utente, password = credenziali()
+    if nomi_categorie:
+        ids = risolvi_categorie(nomi_categorie, base_url, (utente, password))
+        payload["categories"] = ids
+        print(f"Categorie risolte: {', '.join(nomi_categorie)} → {ids}")
+
     try:
         risposta = requests.post(
             endpoint,
@@ -206,6 +277,12 @@ def main() -> int:
     parser.add_argument(
         "--no-sheet", action="store_true", help="Non aggiornare il Google Sheet."
     )
+    parser.add_argument(
+        "--categoria",
+        default=None,
+        help="Categoria da assegnare, per nome (es. News). Più categorie separate da virgola. "
+        "Se omessa vale il campo 'categoria' del front matter.",
+    )
     args = parser.parse_args()
 
     try:
@@ -213,7 +290,9 @@ def main() -> int:
         if args.status == "publish":
             print("ATTENZIONE: stato 'publish' richiesto, l'articolo andrà online subito.")
 
-        risultato = pubblica(meta, corpo, args.base_url, args.status, args.dry_run)
+        risultato = pubblica(
+            meta, corpo, args.base_url, args.status, args.dry_run, args.categoria
+        )
 
         if args.dry_run:
             print("\nDry run completato: nessuna modifica al sito né al foglio.")

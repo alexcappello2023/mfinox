@@ -13,7 +13,7 @@ meta_description: "Perché viti e dadi inox grippano e come il Nitronic 60 (UNS 
 lingua: it
 stato: draft
 autore_suggerito: "alberto.lupi"
-categoria_suggerita: "Materiali"
+categoria: "News"
 riferimento_piano: 1
 note_immagine: "Suggerimento per il cliente: macro di un filetto grippato/strappato accanto a un dado Nitronic 60 integro. Alt text proposto: \"Filetto grippato a confronto con un dado in Nitronic 60 UNS S21800\"."
 ---

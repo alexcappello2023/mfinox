@@ -64,10 +64,17 @@ slug: "…"
 focus_keyword: "…"
 meta_title: "…"          # da incollare in Yoast
 meta_description: "…"    # da incollare in Yoast, usata anche come excerpt
+categoria: "News"        # per nome; più categorie separate da virgola
 lingua: it
 stato: draft
 ---
 ```
+
+La categoria si indica per nome e non per ID: lo script la traduce nell'ID
+numerico interrogando WordPress, così il file resta leggibile e non dipende da
+numeri che cambiano tra un sito e l'altro. Se il nome non esiste, l'errore
+elenca le categorie disponibili. Il campo si può scavalcare al volo con il
+parametro `categoria` del workflow.
 
 Il campo `titolo` è la chiave con cui lo script trova la riga del foglio da
 aggiornare: se non coincide, la bozza viene creata comunque e il workflow
