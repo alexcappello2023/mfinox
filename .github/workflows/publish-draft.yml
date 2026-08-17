@@ -1,0 +1,59 @@
+name: Pubblica bozza su WordPress
+
+# Esecuzione manuale: il contenuto va sempre revisionato dal cliente,
+# quindi non c'è nessuno scheduler che pubblichi da solo.
+on:
+  workflow_dispatch:
+    inputs:
+      articolo:
+        description: "Percorso del file Markdown da caricare"
+        required: true
+        default: "content/2026-08-17-galling-grippaggio-filetti-nitronic-60.md"
+      stato:
+        description: "Stato dell'articolo su WordPress"
+        required: true
+        default: "draft"
+        type: choice
+        options:
+          - draft
+          - pending
+      dry_run:
+        description: "Prova a vuoto, senza chiamare WordPress"
+        required: false
+        default: false
+        type: boolean
+      aggiorna_foglio:
+        description: "Segna la riga come INSERITO nel Google Sheet"
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  pubblica:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Installa le dipendenze
+        run: pip install -r scripts/requirements.txt
+
+      - name: Carica la bozza
+        env:
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          WP_BASE_URL: ${{ vars.WP_BASE_URL || 'https://mfinox.com' }}
+          SHEET_ID: ${{ vars.SHEET_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+          PYTHONPATH: scripts
+        run: |
+          python scripts/publish_to_wordpress.py \
+            --file "${{ inputs.articolo }}" \
+            --status "${{ inputs.stato }}" \
+            ${{ inputs.dry_run && '--dry-run' || '' }} \
+            ${{ inputs.aggiorna_foglio && ' ' || '--no-sheet' }}

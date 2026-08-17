@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Nessuna credenziale nel repository: usare i GitHub Secrets.
+*.env
+.env*
+service-account*.json
+credentials*.json
