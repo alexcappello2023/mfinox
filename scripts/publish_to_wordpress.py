@@ -326,20 +326,27 @@ def elabora(percorso: Path, args) -> bool:
 
     risultato = pubblica(meta, corpo, args.base_url, args.status, args.dry_run, args.categoria)
 
-    if args.dry_run or risultato.get("saltato"):
+    if args.dry_run:
         return True
 
-    print(f"Bozza creata. ID {risultato.get('id')}")
-    print(
-        f"Revisione: {args.base_url.rstrip('/')}/wp-admin/post.php?"
-        f"post={risultato.get('id')}&action=edit"
-    )
+    if not risultato.get("saltato"):
+        print(f"Bozza creata. ID {risultato.get('id')}")
+        print(
+            f"Revisione: {args.base_url.rstrip('/')}/wp-admin/post.php?"
+            f"post={risultato.get('id')}&action=edit"
+        )
 
+    # Il foglio si aggiorna anche per gli articoli saltati: se l'articolo è su
+    # WordPress la riga va marcata INSERITO, che sia stata creata adesso o in
+    # un'esecuzione precedente. Così una riga rimasta indietro si riallinea da
+    # sé al primo passaggio successivo, invece di restare DA FARE per sempre.
     nota_foglio = (
         "Aggiornamento disattivato (--no-sheet)." if args.no_sheet else aggiorna_foglio(meta)
     )
     print(nota_foglio)
-    scrivi_riepilogo(meta, risultato, nota_foglio)
+
+    if not risultato.get("saltato"):
+        scrivi_riepilogo(meta, risultato, nota_foglio)
     return True
 
 
