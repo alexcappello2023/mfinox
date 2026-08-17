@@ -21,6 +21,7 @@ Lo script non pubblica mai online: lo stato predefinito è "draft".
 from __future__ import annotations
 
 import argparse
+import html
 import os
 import re
 import sys
@@ -131,6 +132,58 @@ def risolvi_categorie(nomi: list[str], base_url: str, auth: tuple[str, str]) -> 
     return ids
 
 
+TUTTI_GLI_STATI = "publish,draft,pending,private,future"
+
+
+def articolo_esistente(meta: dict, base_url: str, auth: tuple[str, str]) -> dict | None:
+    """Cerca un articolo già caricato, per slug e in subordine per titolo.
+
+    È la chiave di idempotenza: lo script crea sempre articoli nuovi, quindi
+    senza questo controllo una seconda esecuzione produrrebbe un doppione.
+
+    Si cerca prima per slug, che è l'identificatore più stabile. Ma su una bozza
+    WordPress può non aver memorizzato il campo slug, e in quel caso la ricerca
+    non troverebbe nulla: da qui il secondo tentativo sul titolo esatto. Le due
+    verifiche coprono anche il caso opposto, cioè il titolo cambiato in revisione
+    a slug invariato.
+    """
+    endpoint = f"{base_url.rstrip('/')}/wp-json/wp/v2/posts"
+    intestazioni = {"User-Agent": "mfinox-editorial-bot/1.0"}
+
+    def interroga(parametri: dict) -> list[dict]:
+        try:
+            risposta = requests.get(
+                endpoint,
+                params={**parametri, "status": TUTTI_GLI_STATI},
+                auth=auth,
+                timeout=TIMEOUT,
+                headers=intestazioni,
+            )
+            risposta.raise_for_status()
+            return risposta.json()
+        except requests.RequestException as exc:
+            raise ErroreFatale(
+                f"Verifica dei duplicati fallita su {endpoint}: {exc}. "
+                "Interrompo per non rischiare di creare un doppione."
+            ) from exc
+
+    slug = (meta.get("slug") or "").strip()
+    if slug:
+        trovati = interroga({"slug": slug})
+        if trovati:
+            return trovati[0]
+
+    titolo = " ".join(meta["titolo"].split()).casefold()
+    for candidato in interroga({"search": meta["titolo"], "per_page": 50}):
+        reso = candidato.get("title", {}).get("rendered", "")
+        # WordPress restituisce il titolo con le entità HTML già codificate.
+        reso = html.unescape(reso)
+        if " ".join(reso.split()).casefold() == titolo:
+            return candidato
+
+    return None
+
+
 def pubblica(
     meta: dict,
     corpo: str,
@@ -163,6 +216,13 @@ def pubblica(
         return {"id": None, "link": None, "dry_run": True}
 
     utente, password = credenziali()
+    esistente = articolo_esistente(meta, base_url, (utente, password))
+    if esistente is not None:
+        print(
+            f"Già presente su WordPress (ID {esistente['id']}, stato {esistente['status']}): salto."
+        )
+        return {**esistente, "saltato": True}
+
     if nomi_categorie:
         ids = risolvi_categorie(nomi_categorie, base_url, (utente, password))
         payload["categories"] = ids
@@ -259,9 +319,39 @@ def scrivi_riepilogo(meta: dict, risultato: dict, nota_foglio: str) -> None:
         fh.write("\n".join(righe))
 
 
+def elabora(percorso: Path, args) -> bool:
+    """Carica un singolo articolo. Restituisce True se non ci sono errori."""
+    meta, corpo = leggi_articolo(percorso)
+    print(f"\n=== {percorso.name} ===")
+
+    risultato = pubblica(meta, corpo, args.base_url, args.status, args.dry_run, args.categoria)
+
+    if args.dry_run or risultato.get("saltato"):
+        return True
+
+    print(f"Bozza creata. ID {risultato.get('id')}")
+    print(
+        f"Revisione: {args.base_url.rstrip('/')}/wp-admin/post.php?"
+        f"post={risultato.get('id')}&action=edit"
+    )
+
+    nota_foglio = (
+        "Aggiornamento disattivato (--no-sheet)." if args.no_sheet else aggiorna_foglio(meta)
+    )
+    print(nota_foglio)
+    scrivi_riepilogo(meta, risultato, nota_foglio)
+    return True
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--file", required=True, type=Path, help="Articolo Markdown da caricare.")
+    parser.add_argument("--file", type=Path, help="Articolo Markdown da caricare.")
+    parser.add_argument(
+        "--cartella",
+        type=Path,
+        help="Elabora tutti i .md della cartella, saltando quelli già su WordPress. "
+        "È la modalità usata dal trigger automatico al push.",
+    )
     parser.add_argument(
         "--base-url",
         default=os.environ.get("WP_BASE_URL", DEFAULT_BASE_URL),
@@ -285,37 +375,39 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    try:
-        meta, corpo = leggi_articolo(args.file)
-        if args.status == "publish":
-            print("ATTENZIONE: stato 'publish' richiesto, l'articolo andrà online subito.")
+    if not args.file and not args.cartella:
+        parser.error("serve --file oppure --cartella.")
+    if args.file and args.cartella:
+        parser.error("--file e --cartella si escludono a vicenda.")
 
-        risultato = pubblica(
-            meta, corpo, args.base_url, args.status, args.dry_run, args.categoria
-        )
-
-        if args.dry_run:
-            print("\nDry run completato: nessuna modifica al sito né al foglio.")
+    if args.file:
+        da_fare = [args.file]
+    else:
+        da_fare = sorted(p for p in args.cartella.glob("*.md") if p.is_file())
+        if not da_fare:
+            print(f"Nessun file .md in {args.cartella}: niente da fare.")
             return 0
+        print(f"{len(da_fare)} articoli da valutare in {args.cartella}.")
 
-        print(f"Bozza creata. ID {risultato.get('id')}")
-        edit_link = (
-            f"{args.base_url.rstrip('/')}/wp-admin/post.php?"
-            f"post={risultato.get('id')}&action=edit"
-        )
-        print(f"Revisione: {edit_link}")
+    if args.status == "publish":
+        print("ATTENZIONE: stato 'publish' richiesto, gli articoli andranno online subito.")
 
-        nota_foglio = (
-            "Aggiornamento disattivato (--no-sheet)." if args.no_sheet else aggiorna_foglio(meta)
-        )
-        print(nota_foglio)
+    errori: list[str] = []
+    for percorso in da_fare:
+        try:
+            elabora(percorso, args)
+        except ErroreFatale as exc:
+            # In modalità cartella un articolo malformato non deve bloccare gli altri.
+            print(f"ERRORE su {percorso.name}: {exc}", file=sys.stderr)
+            errori.append(percorso.name)
 
-        scrivi_riepilogo(meta, risultato, nota_foglio)
-        return 0
+    if args.dry_run:
+        print("\nDry run completato: nessuna modifica al sito né al foglio.")
 
-    except ErroreFatale as exc:
-        print(f"ERRORE: {exc}", file=sys.stderr)
+    if errori:
+        print(f"\n{len(errori)} articoli non elaborati: {', '.join(errori)}", file=sys.stderr)
         return 1
+    return 0
 
 
 if __name__ == "__main__":

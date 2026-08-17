@@ -1,14 +1,22 @@
 name: Pubblica bozza su WordPress
 
-# Esecuzione manuale: il contenuto va sempre revisionato dal cliente,
-# quindi non c'è nessuno scheduler che pubblichi da solo.
+# Due modi di partire:
+#  - automatico: appena un .md arriva in content/ sul branch main
+#  - manuale: per rilanciare, provare a vuoto o forzare una categoria
+#
+# In entrambi i casi lo script salta gli articoli il cui slug esiste già su
+# WordPress, quindi rieseguirlo non crea duplicati.
 on:
+  push:
+    branches: [main]
+    paths:
+      - "content/**.md"
   workflow_dispatch:
     inputs:
       articolo:
-        description: "Percorso del file Markdown da caricare"
-        required: true
-        default: "content/2026-08-17-galling-grippaggio-filetti-nitronic-60.md"
+        description: "Percorso di un singolo .md. Vuoto = valuta tutta la cartella content/"
+        required: false
+        default: ""
       stato:
         description: "Stato dell'articolo su WordPress"
         required: true
@@ -17,6 +25,10 @@ on:
         options:
           - draft
           - pending
+      categoria:
+        description: "Categoria WordPress (nome, es. News). Vuoto = usa il front matter"
+        required: false
+        default: ""
       dry_run:
         description: "Prova a vuoto, senza chiamare WordPress"
         required: false
@@ -27,6 +39,13 @@ on:
         required: false
         default: true
         type: boolean
+
+# Due push ravvicinati non devono elaborare la stessa cartella in parallelo:
+# il controllo anti-duplicato interroga WordPress prima di scrivere, e due
+# esecuzioni sovrapposte potrebbero passarlo entrambe.
+concurrency:
+  group: pubblica-bozze-wordpress
+  cancel-in-progress: false
 
 jobs:
   pubblica:
@@ -43,7 +62,7 @@ jobs:
       - name: Installa le dipendenze
         run: pip install -r scripts/requirements.txt
 
-      - name: Carica la bozza
+      - name: Carica le bozze
         env:
           WP_USER: ${{ secrets.WP_USER }}
           WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
@@ -51,9 +70,26 @@ jobs:
           SHEET_ID: ${{ vars.SHEET_ID }}
           GOOGLE_SERVICE_ACCOUNT_JSON: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
           PYTHONPATH: scripts
+          ARTICOLO: ${{ inputs.articolo }}
+          STATO: ${{ inputs.stato || 'draft' }}
+          CATEGORIA: ${{ inputs.categoria }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          # Sui push il foglio si aggiorna sempre; a mano decide la spunta.
+          AGGIORNA_FOGLIO: ${{ github.event_name != 'workflow_dispatch' || inputs.aggiorna_foglio }}
         run: |
-          python scripts/publish_to_wordpress.py \
-            --file "${{ inputs.articolo }}" \
-            --status "${{ inputs.stato }}" \
-            ${{ inputs.dry_run && '--dry-run' || '' }} \
-            ${{ inputs.aggiorna_foglio && ' ' || '--no-sheet' }}
+          ARGS=()
+          if [ -n "$ARTICOLO" ]; then
+            ARGS+=(--file "$ARTICOLO")
+          else
+            ARGS+=(--cartella content)
+          fi
+          if [ -n "$CATEGORIA" ]; then
+            ARGS+=(--categoria "$CATEGORIA")
+          fi
+          if [ "$DRY_RUN" = "true" ]; then
+            ARGS+=(--dry-run)
+          fi
+          if [ "$AGGIORNA_FOGLIO" != "true" ]; then
+            ARGS+=(--no-sheet)
+          fi
+          python scripts/publish_to_wordpress.py "${ARGS[@]}" --status "$STATO"

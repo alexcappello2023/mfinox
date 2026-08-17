@@ -29,10 +29,15 @@ tipiche (workflow non visibili, permessi delle GitHub App, Actions da abilitare)
 **Popolare il foglio:** `Actions` → *Piano editoriale (Google Sheet)* → `semina`.
 Aggiunge i dieci titoli in stato `DA FARE` senza duplicare quelli già presenti.
 
-**Pubblicare una bozza:** `Actions` → *Pubblica bozza su WordPress* → `Run workflow`,
-indicando il percorso del file in `content/`. Il riepilogo dell'esecuzione
-riporta l'ID dell'articolo, il link di modifica e i tre campi da incollare in
-Yoast SEO.
+**Pubblicare una bozza:** non serve fare nulla. Appena un `.md` arriva in
+`content/` sul branch `main`, il workflow parte da sé e la bozza compare in
+WordPress. Il riepilogo dell'esecuzione riporta l'ID dell'articolo, il link di
+modifica e i tre campi da incollare in Yoast SEO.
+
+L'esecuzione manuale resta disponibile per i casi particolari: `Actions` →
+*Pubblica bozza su WordPress* → `Run workflow`, dove si può provare a vuoto
+(`dry_run`), forzare una categoria, o limitarsi a un singolo file indicandone il
+percorso. Lasciando il campo `articolo` vuoto viene valutata tutta la cartella.
 
 **Sapere cosa scrivere:** `Actions` → *Piano editoriale* → `prossimo`.
 
@@ -43,10 +48,21 @@ data/piano-editoriale.csv ──semina──> Google Sheet (DA FARE)
                                             │
                               si scrive content/<slug>.md
                                             │
-                            workflow "Pubblica bozza"
+                                    push su main
                                             │
                         WordPress: bozza creata ──> Sheet: INSERITO
 ```
+
+## Perché rieseguire è sicuro
+
+Lo script crea articoli, non li aggiorna. Da solo, una seconda esecuzione
+produrrebbe un doppione. Per questo prima di scrivere verifica se l'articolo
+esiste già su WordPress, in qualunque stato: cerca per slug e, se la bozza non
+ha lo slug memorizzato, per titolo esatto. Se lo trova, lo salta.
+
+La conseguenza pratica è che il workflow può girare su tutta la cartella
+`content/` a ogni push senza effetti collaterali: pubblica solo ciò che manca.
+Se una pubblicazione fallisce, il push successivo la ritenta da sé.
 
 Lo stato passa a `INSERITO` solo dopo che WordPress ha confermato la creazione:
 il foglio non può segnalare come caricato un articolo che non esiste.
