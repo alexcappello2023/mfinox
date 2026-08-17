@@ -184,6 +184,55 @@ def articolo_esistente(meta: dict, base_url: str, auth: tuple[str, str]) -> dict
     return None
 
 
+def allinea_categorie(
+    meta: dict, post: dict, base_url: str, categoria: str | None
+) -> str:
+    """Verifica che le categorie dichiarate siano davvero sull'articolo.
+
+    Impostare `categories` nella POST di creazione non garantisce che il termine
+    resti assegnato: un filtro lato WordPress o un plugin può riscrivere le
+    tassonomie al salvataggio. Qui si ricontrolla il risultato e, se manca, si
+    applica con un aggiornamento esplicito.
+
+    L'aggiornamento fa l'unione con le categorie già presenti, così una
+    categoria aggiunta a mano in revisione non viene rimossa.
+    """
+    nomi = categorie_richieste(meta, categoria)
+    if not nomi:
+        return "Categorie: nessuna dichiarata."
+
+    utente, password = credenziali()
+    auth = (utente, password)
+    attesi = set(risolvi_categorie(nomi, base_url, auth))
+    attuali = set(post.get("categories") or [])
+
+    if attesi.issubset(attuali):
+        return f"Categorie: già corrette {sorted(attuali)}."
+
+    endpoint = f"{base_url.rstrip('/')}/wp-json/wp/v2/posts/{post['id']}"
+    unione = sorted(attuali | attesi)
+    try:
+        risposta = requests.post(
+            endpoint,
+            json={"categories": unione},
+            auth=auth,
+            timeout=TIMEOUT,
+            headers={"User-Agent": "mfinox-editorial-bot/1.0"},
+        )
+        risposta.raise_for_status()
+    except requests.RequestException as exc:
+        return f"Categorie: aggiornamento fallito ({exc}). Da assegnare a mano."
+
+    finali = risposta.json().get("categories") or []
+    if attesi.issubset(set(finali)):
+        return f"Categorie: corrette da {sorted(attuali)} a {finali}."
+    return (
+        f"Categorie: ATTENZIONE, dopo l'aggiornamento risultano {finali} invece di "
+        f"{unione}. Qualcosa lato WordPress riscrive le tassonomie al salvataggio: "
+        "assegnare a mano e verificare i plugin attivi."
+    )
+
+
 def pubblica(
     meta: dict,
     corpo: str,
@@ -335,6 +384,10 @@ def elabora(percorso: Path, args) -> bool:
             f"Revisione: {args.base_url.rstrip('/')}/wp-admin/post.php?"
             f"post={risultato.get('id')}&action=edit"
         )
+
+    # Vale sia per gli articoli appena creati sia per quelli saltati: ogni
+    # passaggio riporta le categorie a quanto dichiarato nel front matter.
+    print(allinea_categorie(meta, risultato, args.base_url, args.categoria))
 
     # Il foglio si aggiorna anche per gli articoli saltati: se l'articolo è su
     # WordPress la riga va marcata INSERITO, che sia stata creata adesso o in
