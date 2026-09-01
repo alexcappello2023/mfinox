@@ -337,7 +337,23 @@ def pubblica(
             f"WordPress ha risposto {risposta.status_code}: {risposta.text[:500]}"
         )
 
-    return risposta.json()
+    try:
+        return risposta.json()
+    except ValueError as exc:
+        # Codice di successo ma corpo non JSON: tipicamente una pagina HTML
+        # restituita da un WAF, da un plugin di sicurezza o da uno strato di
+        # cache che si è interposto. L'articolo può essere stato creato lo
+        # stesso, quindi il messaggio invita a verificare invece di ripubblicare
+        # alla cieca: il controllo anti-duplicato rende comunque sicuro un nuovo
+        # tentativo.
+        raise ErroreFatale(
+            f"WordPress ha risposto {risposta.status_code} ma con un corpo non JSON "
+            f"({exc}). Content-Type: {risposta.headers.get('Content-Type', 'assente')}. "
+            f"Primi 300 caratteri: {risposta.text[:300]!r}. "
+            "Probabile intervento di un WAF, di un plugin di sicurezza o di uno strato "
+            "di cache. L'articolo potrebbe essere stato creato ugualmente: verificare "
+            "tra le bozze prima di intervenire."
+        ) from exc
 
 
 def aggiorna_foglio(meta: dict) -> str:
@@ -487,6 +503,15 @@ def main() -> int:
         except ErroreFatale as exc:
             # In modalità cartella un articolo malformato non deve bloccare gli altri.
             print(f"ERRORE su {percorso.name}: {exc}", file=sys.stderr)
+            errori.append(percorso.name)
+        except Exception as exc:  # noqa: BLE001
+            # Rete di sicurezza: qualunque imprevisto su un articolo non deve
+            # impedire l'elaborazione dei successivi. Il run resta rosso, ma il
+            # log riporta il problema per ciascun file anziché fermarsi al primo.
+            print(
+                f"ERRORE IMPREVISTO su {percorso.name}: {type(exc).__name__}: {exc}",
+                file=sys.stderr,
+            )
             errori.append(percorso.name)
 
     if args.dry_run:
