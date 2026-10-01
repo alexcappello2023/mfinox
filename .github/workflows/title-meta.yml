@@ -1,0 +1,62 @@
+name: Aggiorna title e meta description
+
+# Solo manuale: non è una modifica che deve partire da sola a ogni push.
+# La prova a vuoto è il default, così il primo run dice cosa troverebbe senza
+# toccare niente.
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Un solo url da data/title-meta.csv. Vuoto = tutte le righe"
+        required: false
+        default: ""
+      applica:
+        description: "Scrive davvero su WordPress (senza spunta è una prova a vuoto)"
+        required: false
+        default: false
+        type: boolean
+      applica_titolo:
+        description: "Cambia anche il titolo VISIBILE in pagina dove indicato (1.4301)"
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: aggiorna-title-meta
+  cancel-in-progress: false
+
+jobs:
+  aggiorna:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
+
+      - name: Installa le dipendenze
+        run: pip install -r scripts/requirements.txt
+
+      - name: Scrivi title e meta
+        env:
+          WP_USER: ${{ secrets.WP_USER }}
+          WP_APP_PASSWORD: ${{ secrets.WP_APP_PASSWORD }}
+          WP_BASE_URL: ${{ vars.WP_BASE_URL || 'https://mfinox.com' }}
+          URL: ${{ inputs.url }}
+          APPLICA: ${{ inputs.applica }}
+          APPLICA_TITOLO: ${{ inputs.applica_titolo }}
+        run: |
+          ARGS=()
+          if [ -n "$URL" ]; then
+            ARGS+=(--url "$URL")
+          fi
+          if [ "$APPLICA" = "true" ]; then
+            ARGS+=(--applica)
+          fi
+          if [ "$APPLICA_TITOLO" = "true" ]; then
+            ARGS+=(--applica-titolo)
+          fi
+          python scripts/aggiorna_title_meta.py "${ARGS[@]}"

@@ -11,15 +11,23 @@ decisione del cliente.
 
 | Percorso | Contenuto |
 |---|---|
-| `docs/analisi-seo.md` | Analisi dei 16 mesi di Search Console, confronto con i concorrenti, motivazione dei dieci temi |
+| `docs/riepilogo-2026-10-01.md` | **Partire da qui.** Stato del lavoro, analisi dell'export completo di settembre 2026, piano rivisto |
+| `docs/title-meta-da-riscrivere.md` | Title e meta description pronti per 20 pagine, con i numeri e il motivo di ognuna |
+| `docs/dati-strutturati.md` | Cosa installare per il markup BreadcrumbList e per rendere scrivibili i campi Yoast |
+| `docs/analisi-seo.md` | Prima analisi (export di agosto 2026). Alcune conclusioni sono superate: vedi il riepilogo |
+| `docs/aggiornamento-2026-09.md` | Totali e stagionalità dell'export del 1 ottobre 2026 |
 | `docs/GITHUB.md` | Percorso completo su GitHub: push iniziale, Actions, secrets, prima esecuzione |
 | `docs/SETUP.md` | Dettaglio su secrets, variables, service account Google e campi Yoast |
-| `data/piano-editoriale.csv` | I dieci titoli con la key e lo stato, da cui si popola il Google Sheet |
+| `data/piano-editoriale.csv` | I titoli con la key e lo stato, da cui si popola il Google Sheet |
 | `content/` | Gli articoli: front matter YAML con i metadati SEO, corpo in blocchi Gutenberg |
 | `scripts/publish_to_wordpress.py` | Crea la bozza via REST API e segna la riga come `INSERITO` |
 | `scripts/piano_editoriale.py` | Popola il foglio, mostra il prossimo argomento `DA FARE` |
 | `scripts/sheet.py` | Accesso al Google Sheet |
-| `.github/workflows/` | I due workflow, entrambi a esecuzione manuale |
+| `scripts/aggiorna_title_meta.py` | Scrive title SEO e meta description sui contenuti già online |
+| `scripts/diagnostica_wp.py` | Legge categorie e post senza modificare niente, per capire cosa risponde WordPress |
+| `data/title-meta.csv` | Le venti riscritture, nel formato che lo script legge |
+| `wordpress/mfinox-seo.php` | Da installare sul sito: markup BreadcrumbList e campi Yoast via REST |
+| `.github/workflows/` | I workflow: pubblicazione bozze, title e meta, piano editoriale, diagnostica |
 
 ## Come si usa
 
@@ -40,6 +48,13 @@ L'esecuzione manuale resta disponibile per i casi particolari: `Actions` →
 percorso. Lasciando il campo `articolo` vuoto viene valutata tutta la cartella.
 
 **Sapere cosa scrivere:** `Actions` → *Piano editoriale* → `prossimo`.
+
+**Riscrivere title e meta description:** `Actions` → *Aggiorna title e meta
+description* → `Run workflow`. Il primo giro lascialo senza spunte: è una prova
+a vuoto che dice cosa troverebbe senza scrivere niente. Richiede
+`wordpress/mfinox-seo.php` installato sul sito, altrimenti WordPress accetta la
+richiesta e scarta i valori — e lo script te lo dice invece di far finta di aver
+funzionato.
 
 ## Il ciclo di lavoro
 

@@ -82,6 +82,13 @@ add_action( 'init', function () {
 Con quel frammento attivo si può estendere `publish_to_wordpress.py` per
 inviare anche il dizionario `meta`.
 
+**Aggiornamento di ottobre 2026.** Quel frammento copre solo i `post`, e le
+schede materiale del sito non sono dei `post`. La versione da installare è
+`wordpress/mfinox-seo.php`, che registra gli stessi campi su tutti i tipi di
+contenuto pubblici e stampa anche il markup BreadcrumbList. Le istruzioni sono
+in `docs/dati-strutturati.md`. Con quel file attivo funziona anche
+`scripts/aggiorna_title_meta.py`.
+
 ## Pubblicare l'articolo successivo
 
 1. Scrivi il file in `content/`, con `titolo` nel front matter **identico** alla
