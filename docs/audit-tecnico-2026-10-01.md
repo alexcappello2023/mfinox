@@ -51,9 +51,39 @@ sito è cieco a ogni diagnostica esterna.
 desktop. La catena di challenge del firewall è esattamente il tipo di redirect
 che produce quel profilo.
 
-**3. La REST API che risponde `200` con un corpo non JSON.** È il fallimento del
-run 9 del 1 settembre. Il corpo non JSON era, con ogni probabilità, l'HTML della
-pagina di challenge.
+**3. La REST API che risponde `200` con un corpo non JSON.** Non è più
+un'ipotesi: il **run 16 del 1 ottobre** ha catturato il corpo della risposta, e
+sono queste dodici righe.
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf8">
+  <meta name="viewport" content="width=device-width,initial-scale=1.0">
+  <script>
+      (function(){
+          setTimeout(function(){
+              window.location.reload();
+          }, 5000);
+      }())
+  </script>
+  <link rel="icon"…
+```
+
+`HTTP 200`, `Content-Type: text/html`, e una pagina che si ricarica da sola dopo
+cinque secondi. È la stessa challenge che il crawler ha ricevuto su 718 URL su
+718. Lo stesso meccanismo, catturato su due strumenti indipendenti: il firewall
+intercetta anche le chiamate REST e il client crede di aver parlato con
+WordPress.
+
+Nel run 16 sono falliti **7 articoli su 14**, tutti con lo stesso
+`JSONDecodeError`. Il run 15, quindici minuti prima, era passato senza errori
+sulle stesse operazioni. Il rilancio immediato è andato a buon fine. È quindi
+**intermittente e in peggioramento**: da zero fallimenti a sette.
+
+Questo sposta la whitelist di `/wp-json/wp/v2/` da «utile» a **bloccante**:
+senza, ogni pubblicazione è una scommessa su quale richiesta passa.
 
 **4. Le categorie scartate in silenzio.** La API accetta `categories: [123]`,
 risponde `200`, e il post resta senza categoria. Un WAF che filtra il payload
