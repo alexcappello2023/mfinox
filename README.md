@@ -15,6 +15,7 @@ decisione del cliente.
 | `docs/title-meta-da-riscrivere.md` | Title e meta description pronti per 20 pagine, con i numeri e il motivo di ognuna |
 | `docs/audit-tecnico-2026-10-01.md` | **Audit Ubersuggest e PageSpeed.** Il firewall applicativo che spiega quattro problemi diversi |
 | `docs/dati-strutturati.md` | Cosa installare per il markup BreadcrumbList e per rendere scrivibili i campi Yoast |
+| `docs/javascript-non-utilizzato.md` | I tre passi per togliere 1,18 MB di JavaScript mai eseguito |
 | `docs/analisi-seo.md` | Prima analisi (export di agosto 2026). Alcune conclusioni sono superate: vedi il riepilogo |
 | `docs/aggiornamento-2026-09.md` | Totali e stagionalità dell'export del 1 ottobre 2026 |
 | `docs/GITHUB.md` | Percorso completo su GitHub: push iniziale, Actions, secrets, prima esecuzione |
@@ -28,6 +29,7 @@ decisione del cliente.
 | `scripts/diagnostica_wp.py` | Legge categorie e post senza modificare niente, per capire cosa risponde WordPress |
 | `data/title-meta.csv` | Le venti riscritture, nel formato che lo script legge |
 | `wordpress/mfinox-seo.php` | Da installare sul sito: markup BreadcrumbList e campi Yoast via REST |
+| `wordpress/mfinox-performance.php` | Da installare sul sito: inventario degli asset, rimozione del JavaScript inutile, defer |
 | `.github/workflows/` | I workflow: pubblicazione bozze, title e meta, piano editoriale, diagnostica |
 
 ## Come si usa
