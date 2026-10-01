@@ -48,10 +48,13 @@ Otto articoli, 13.056 parole, tutti in italiano, tutti in bozza:
 il post resta senza categoria. Verificato che non è un problema di termini
 multilingua (la lista delle categorie è identica con e senza `?lang=it`) né di
 ID sbagliato (`News` = 123). La spunta manuale nell'admin funziona e resta.
-Ipotesi residua: l'utente `alberto.lupi` non ha `assign_terms` sulla tassonomia
-via REST, o un plugin di sicurezza filtra il campo restituendo comunque 200.
-Serve qualcuno con accesso admin al sito per chiuderla. **Workaround attuale: la
-spunta `News` a mano.**
+**Risolto il 1 ottobre, almeno come diagnosi.** L'audit tecnico ha trovato che
+il sito è dietro un firewall applicativo che risponde `200` servendo una pagina
+di attesa. È la spiegazione più plausibile sia di questo sintomo sia della
+risposta non JSON del punto (b): un WAF che filtra il payload della richiesta e
+la lascia passare svuotata. Vedi `docs/audit-tecnico-2026-10-01.md`.
+**Workaround attuale: la spunta `News` a mano.** La soluzione è mettere in
+whitelist `/wp-json/wp/v2/` per l'utente dell'automazione.
 
 **b) Una risposta non JSON da WordPress** ha fatto fallire il run #9. Lo script
 adesso la gestisce e la segnala; il nuovo tentativo è andato a buon fine senza

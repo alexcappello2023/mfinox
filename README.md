@@ -13,6 +13,7 @@ decisione del cliente.
 |---|---|
 | `docs/riepilogo-2026-10-01.md` | **Partire da qui.** Stato del lavoro, analisi dell'export completo di settembre 2026, piano rivisto |
 | `docs/title-meta-da-riscrivere.md` | Title e meta description pronti per 20 pagine, con i numeri e il motivo di ognuna |
+| `docs/audit-tecnico-2026-10-01.md` | **Audit Ubersuggest e PageSpeed.** Il firewall applicativo che spiega quattro problemi diversi |
 | `docs/dati-strutturati.md` | Cosa installare per il markup BreadcrumbList e per rendere scrivibili i campi Yoast |
 | `docs/analisi-seo.md` | Prima analisi (export di agosto 2026). Alcune conclusioni sono superate: vedi il riepilogo |
 | `docs/aggiornamento-2026-09.md` | Totali e stagionalità dell'export del 1 ottobre 2026 |
