@@ -75,9 +75,32 @@ una bozza ISO 3506 duplicata: gli ID dei post sono saltati da 8795 a 8798.
 una lista troncata. Nessuno degli otto slug compare. Zero impressioni, zero
 clic, in sei settimane dalla prima stesura.
 
-Significa una cosa sola: **non sono pubblicati, o sono pubblicati e non
-indicizzati.** Cadeva qui la domanda che ti avevo fatto due volte — ora la
-risposta ce l'ho dai dati, e chiude anche l'altra questione: **il salto di
+**Aggiornamento del 1 ottobre, dai log del run 13.** Lo stato reale su
+WordPress risolve l'ambiguità: non sono tutti bozze.
+
+| ID | Articolo | Stato |
+|---|---|---|
+| 8787 | Galling / Nitronic 60 | draft |
+| 8789 | Corrosione galvanica | draft |
+| 8791 | Alloy 800 / 800H / 800HT | **future** (programmato) |
+| 8793 | PREN | draft |
+| 8795 | DFARS | **publish** |
+| 8798 | ISO 3506 / F593 | **publish** |
+| 8800 | A193 B8 Classe 1 e 2 | draft |
+| 8803 | Antigrippanti / fattore K | draft |
+| 8861 | ASTM A194 gradi | draft (nuovo) |
+| 8863 | Equivalenze Werkstoff/AISI/UNS/ASTM | draft (nuovo) |
+
+Due articoli sono **pubblicati** e hanno **zero impressioni** fino al 28
+settembre. Non è quindi un problema di pubblicazione: è un **problema di
+indicizzazione**. Vanno controllati tre punti: che non siano `noindex`, che
+compaiano nella sitemap, e che l'URL sia stato sottoposto a Search Console con
+"Richiedi l'indicizzazione".
+
+Uno (8791) è in stato `future`, cioè programmato per una data futura: nessuno
+sembra averlo deciso intenzionalmente e va verificato.
+
+In ogni caso la conclusione sull'attribuzione non cambia: **il salto di
 posizione di settembre non è attribuibile ai contenuti.** Pagine con zero
 impressioni non possono spostare la posizione media del sito.
 

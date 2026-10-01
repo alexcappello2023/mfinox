@@ -9,7 +9,7 @@ on:
       post_ids:
         description: "ID degli articoli da ispezionare, separati da virgola"
         required: false
-        default: "8787,8789,8791"
+        default: "8787,8789,8791,8793,8795,8798,8800,8803,8861,8863"
 
 jobs:
   diagnostica:

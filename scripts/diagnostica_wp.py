@@ -81,6 +81,17 @@ def mostra_articoli(base: str, auth: tuple[str, str], ids: list[str]) -> None:
         print(f"    slug       : {dati.get('slug')!r}")
         print(f"    categories : {dati.get('categories')}")
         print(f"    lingua     : {dati.get('lang', '(campo assente)')}")
+        # La data di pubblicazione è il dato che permette di attribuire o meno
+        # un movimento di Search Console a un articolo.
+        print(f"    data       : {dati.get('date')}  (GMT {dati.get('date_gmt')})")
+        print(f"    modificato : {dati.get('modified')}")
+        print(f"    link       : {dati.get('link')}")
+        meta = dati.get("meta")
+        if isinstance(meta, dict) and meta:
+            chiavi_yoast = sorted(k for k in meta if k.startswith("_yoast"))
+            print(f"    meta Yoast : {chiavi_yoast or 'nessuna chiave esposta'}")
+        else:
+            print("    meta Yoast : sottooggetto 'meta' assente o vuoto")
 
 
 def main() -> int:
