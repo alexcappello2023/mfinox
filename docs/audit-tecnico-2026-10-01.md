@@ -106,11 +106,36 @@ challenge, su sei scenari:
 | Challenge sempre sulla creazione | si arrende, **zero post creati** | ✓ |
 | Challenge su tutto | si arrende sulla verifica duplicati, prima di creare | ✓ |
 
-Il quarto scenario è quello che conta, ed è anche quello che ha prodotto un
-risultato inatteso: dopo aver riconosciuto il post già creato, l'allineamento
-delle categorie è passato da `[]` a `[123]`. **Il ritentativo può quindi
-sistemare anche il bug delle categorie**, se la causa è che la richiesta
-intercettata arriva svuotata. Lo diranno i prossimi run.
+Il quarto scenario è quello che conta: riconosce il post e non lo duplica.
+
+### Il run 18 smentisce il legame fra firewall e categorie
+
+Nel collaudo offline, dopo il riconoscimento del post l'allineamento delle
+categorie era passato da `[]` a `[123]`, e ne avevo dedotto che il ritentativo
+potesse sistemare anche quel bug. **Il run 18 sul sito reale dice che è
+sbagliato.**
+
+Quel run ha elaborato tutti e 14 gli articoli **senza un solo errore e senza un
+solo ritentativo**: il firewall non è intervenuto nemmeno una volta. Eppure le
+categorie restano non assegnate sugli stessi sette post. L'aggiornamento riceve
+una risposta JSON valida, e quella risposta dichiara `categories: []`.
+
+Conclusione: **il problema delle categorie non è il firewall.** WordPress accetta
+la richiesta, risponde correttamente, e declina l'assegnazione del termine. Sono
+due guasti distinti con la stessa data di comparsa, e la coincidenza temporale
+mi aveva portato a unirli.
+
+Resta un solo indizio utile, ed è riproducibile: **l'articolo 8800 è il solo su
+cui l'aggiornamento abbia mai funzionato**, ed è anche il solo che prima
+dell'aggiornamento avesse già un termine assegnato — `[1]`, Uncategorized. Su
+quello l'unione `[1, 123]` è stata accettata. Su tutti gli altri, che partono da
+`[]`, l'insieme `[123]` viene respinto.
+
+L'esperimento decisivo è di una riga: assegnare via REST a uno dei sette post
+l'insieme `[1, 123]` invece di `[123]`. Se resta, il blocco riguarda i post
+senza termini e il rimedio è includere sempre la categoria predefinita
+nell'unione. Se non resta, l'indizio cade e serve l'accesso admin per guardare i
+filtri su `save_post` e i plugin di tassonomia.
 
 **4. Le categorie scartate in silenzio.** La API accetta `categories: [123]`,
 risponde `200`, e il post resta senza categoria. Un WAF che filtra il payload
