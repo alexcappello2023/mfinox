@@ -85,6 +85,33 @@ sulle stesse operazioni. Il rilancio immediato è andato a buon fine. È quindi
 Questo sposta la whitelist di `/wp-json/wp/v2/` da «utile» a **bloccante**:
 senza, ogni pubblicazione è una scommessa su quale richiesta passa.
 
+**Mitigazione in attesa della whitelist.** Dal 2 ottobre
+`publish_to_wordpress.py` ritenta le chiamate che ricevono la challenge: tre
+tentativi, attesa 3 e 9 secondi. Non si ritenta sui 4xx, che descrivono un
+problema della richiesta. La creazione di un articolo è il caso delicato, perché
+un POST ritentato alla cieca produrrebbe un doppione: lì, prima di ogni nuovo
+tentativo, lo script ricontrolla se l'articolo è stato creato comunque — una
+risposta non JSON non dice se la richiesta è arrivata a WordPress o è stata
+intercettata prima.
+
+Il meccanismo è stato collaudato contro un finto WordPress che imita la
+challenge, su sei scenari:
+
+| Scenario | Esito atteso | Verificato |
+|---|---|---|
+| Nessuna interferenza | pubblica al primo colpo | ✓ |
+| Challenge sulle prime due letture | due ritentativi, poi pubblica | ✓ |
+| Challenge sulla creazione, post non creato | ritenta e crea | ✓ |
+| Challenge sulla creazione, **post creato comunque** | riconosce il post e **non lo duplica** | ✓ |
+| Challenge sempre sulla creazione | si arrende, **zero post creati** | ✓ |
+| Challenge su tutto | si arrende sulla verifica duplicati, prima di creare | ✓ |
+
+Il quarto scenario è quello che conta, ed è anche quello che ha prodotto un
+risultato inatteso: dopo aver riconosciuto il post già creato, l'allineamento
+delle categorie è passato da `[]` a `[123]`. **Il ritentativo può quindi
+sistemare anche il bug delle categorie**, se la causa è che la richiesta
+intercettata arriva svuotata. Lo diranno i prossimi run.
+
 **4. Le categorie scartate in silenzio.** La API accetta `categories: [123]`,
 risponde `200`, e il post resta senza categoria. Un WAF che filtra il payload
 della richiesta e la lascia passare svuotata produce esattamente questo.

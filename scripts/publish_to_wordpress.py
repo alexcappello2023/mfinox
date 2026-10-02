@@ -25,6 +25,7 @@ import html
 import os
 import re
 import sys
+import time
 from pathlib import Path
 
 import requests
@@ -32,10 +33,110 @@ import yaml
 
 DEFAULT_BASE_URL = "https://mfinox.com"
 TIMEOUT = 60
+INTESTAZIONI = {"User-Agent": "mfinox-editorial-bot/1.0"}
+
+# Il sito è dietro un firewall applicativo che, in modo intermittente,
+# restituisce la propria pagina di attesa con codice 200 invece di inoltrare la
+# richiesta a WordPress. Il fenomeno non è deterministico — un rilancio
+# immediato passa — quindi vale la pena ritentare prima di arrendersi.
+# Vedi docs/audit-tecnico-2026-10-01.md.
+RITENTATIVI = 3
+ATTESA_BASE = 3.0  # secondi; triplica a ogni tentativo: 3, 9
 
 
 class ErroreFatale(RuntimeError):
     pass
+
+
+class RispostaNonJson(RuntimeError):
+    """Codice di successo ma corpo non JSON.
+
+    È la firma di un firewall che si interpone: il client riceve 200 e crede di
+    aver parlato con WordPress. Si distingue da un errore vero perché è
+    transitoria, e quindi ritentabile.
+    """
+
+    def __init__(self, risposta, contesto: str):
+        self.risposta = risposta
+        self.contesto = contesto
+        tipo = risposta.headers.get("Content-Type", "assente")
+        super().__init__(
+            f"codice {risposta.status_code} ma corpo non JSON "
+            f"(Content-Type: {tipo}). Primi 200 caratteri: {risposta.text[:200]!r}"
+        )
+
+
+def corpo_json(risposta, contesto: str):
+    try:
+        return risposta.json()
+    except ValueError as exc:
+        raise RispostaNonJson(risposta, contesto) from exc
+
+
+def attendi(tentativo: int, contesto: str, motivo) -> None:
+    attesa = ATTESA_BASE * (3 ** (tentativo - 1))
+    print(
+        f"  {contesto}: tentativo {tentativo} di {RITENTATIVI} non riuscito "
+        f"({motivo}). Riprovo fra {attesa:.0f}s.",
+        file=sys.stderr,
+    )
+    time.sleep(attesa)
+
+
+def chiama(
+    metodo: str,
+    url: str,
+    *,
+    auth: tuple[str, str],
+    contesto: str,
+    params: dict | None = None,
+    corpo: dict | None = None,
+):
+    """Chiama le REST API e restituisce il JSON, ritentando quando ha senso.
+
+    Si ritenta su errore di rete, su 5xx e sulle risposte non JSON: sono tutte
+    condizioni transitorie. Non si ritenta sui 4xx, che descrivono un problema
+    della richiesta e non cambierebbero esito a forza di tentativi.
+
+    Da NON usare per creare contenuti: un POST di creazione ritentato alla cieca
+    produrrebbe un doppione. La creazione è gestita in pubblica(), che prima di
+    riprovare verifica se l'articolo è stato creato comunque.
+    """
+    ultimo: object = "nessun dettaglio"
+    for tentativo in range(1, RITENTATIVI + 1):
+        try:
+            risposta = requests.request(
+                metodo,
+                url,
+                params=params,
+                json=corpo,
+                auth=auth,
+                timeout=TIMEOUT,
+                headers=INTESTAZIONI,
+            )
+        except requests.RequestException as exc:
+            ultimo = exc
+        else:
+            if 400 <= risposta.status_code < 500:
+                raise ErroreFatale(
+                    f"{contesto}: WordPress ha risposto {risposta.status_code}. "
+                    f"{risposta.text[:300]}"
+                )
+            if risposta.status_code >= 500:
+                ultimo = f"{risposta.status_code} dal server"
+            else:
+                try:
+                    return corpo_json(risposta, contesto)
+                except RispostaNonJson as exc:
+                    ultimo = exc
+        if tentativo < RITENTATIVI:
+            attendi(tentativo, contesto, ultimo)
+
+    raise ErroreFatale(
+        f"{contesto}: {RITENTATIVI} tentativi falliti. Ultimo esito: {ultimo}. "
+        "Se il corpo è una pagina HTML, è il firewall che intercetta le chiamate "
+        "REST: vedi docs/audit-tecnico-2026-10-01.md."
+    )
 
 
 def leggi_articolo(percorso: Path) -> tuple[dict, str]:
@@ -98,21 +199,15 @@ def risolvi_categorie(
         return []
 
     endpoint = f"{base_url.rstrip('/')}/wp-json/wp/v2/categories"
-    intestazioni = {"User-Agent": "mfinox-editorial-bot/1.0"}
 
     def interroga(parametri: dict) -> list[dict]:
-        try:
-            risposta = requests.get(
-                endpoint,
-                params={**(lingua or {}), **parametri},
-                auth=auth,
-                timeout=TIMEOUT,
-                headers=intestazioni,
-            )
-            risposta.raise_for_status()
-            return risposta.json()
-        except requests.RequestException as exc:
-            raise ErroreFatale(f"Lettura delle categorie da {endpoint} fallita: {exc}") from exc
+        return chiama(
+            "GET",
+            endpoint,
+            auth=auth,
+            contesto="Lettura delle categorie",
+            params={**(lingua or {}), **parametri},
+        )
 
     ids: list[int] = []
     for nome in nomi:
@@ -172,24 +267,18 @@ def articolo_esistente(meta: dict, base_url: str, auth: tuple[str, str]) -> dict
     a slug invariato.
     """
     endpoint = f"{base_url.rstrip('/')}/wp-json/wp/v2/posts"
-    intestazioni = {"User-Agent": "mfinox-editorial-bot/1.0"}
 
     def interroga(parametri: dict) -> list[dict]:
-        try:
-            risposta = requests.get(
-                endpoint,
-                params={**parametri, "status": TUTTI_GLI_STATI},
-                auth=auth,
-                timeout=TIMEOUT,
-                headers=intestazioni,
-            )
-            risposta.raise_for_status()
-            return risposta.json()
-        except requests.RequestException as exc:
-            raise ErroreFatale(
-                f"Verifica dei duplicati fallita su {endpoint}: {exc}. "
-                "Interrompo per non rischiare di creare un doppione."
-            ) from exc
+        # Qui i ritentativi contano più che altrove: se questa lettura fallisce
+        # non si sa se l'articolo esiste, e creare alla cieca significa un
+        # doppione. Esaurite le prove, chiama() interrompe l'elaborazione.
+        return chiama(
+            "GET",
+            endpoint,
+            auth=auth,
+            contesto="Verifica dei duplicati",
+            params={**parametri, "status": TUTTI_GLI_STATI},
+        )
 
     slug = (meta.get("slug") or "").strip()
     if slug:
@@ -236,19 +325,19 @@ def allinea_categorie(
     endpoint = f"{base_url.rstrip('/')}/wp-json/wp/v2/posts/{post['id']}"
     unione = sorted(attuali | attesi)
     try:
-        risposta = requests.post(
+        # Aggiornare un post esistente per ID è idempotente: ritentare è sicuro.
+        risultato = chiama(
+            "POST",
             endpoint,
-            params=parametri_lingua(meta),
-            json={"categories": unione},
             auth=auth,
-            timeout=TIMEOUT,
-            headers={"User-Agent": "mfinox-editorial-bot/1.0"},
+            contesto="Aggiornamento delle categorie",
+            params=parametri_lingua(meta),
+            corpo={"categories": unione},
         )
-        risposta.raise_for_status()
-    except requests.RequestException as exc:
+    except ErroreFatale as exc:
         return f"Categorie: aggiornamento fallito ({exc}). Da assegnare a mano."
 
-    finali = risposta.json().get("categories") or []
+    finali = risultato.get("categories") or []
     if attesi.issubset(set(finali)):
         return f"Categorie: corrette da {sorted(attuali)} a {finali}."
     return (
@@ -304,56 +393,73 @@ def pubblica(
         payload["categories"] = ids
         print(f"Categorie risolte: {', '.join(nomi_categorie)} → {ids}")
 
-    try:
-        risposta = requests.post(
-            endpoint,
-            params=parametri_lingua(meta),
-            json=payload,
-            auth=(utente, password),
-            timeout=TIMEOUT,
-            headers={"User-Agent": "mfinox-editorial-bot/1.0"},
-        )
-    except requests.RequestException as exc:
-        raise ErroreFatale(f"Chiamata a {endpoint} fallita: {exc}") from exc
+    # La creazione NON passa da chiama(): un POST di creazione ritentato alla
+    # cieca produrrebbe un doppione. Qui, prima di ogni nuovo tentativo, si
+    # ricontrolla se l'articolo è stato creato comunque — perché una risposta
+    # non JSON non dice se la richiesta è arrivata a WordPress o è stata
+    # intercettata prima.
+    ultimo: object = "nessun dettaglio"
+    for tentativo in range(1, RITENTATIVI + 1):
+        try:
+            risposta = requests.post(
+                endpoint,
+                params=parametri_lingua(meta),
+                json=payload,
+                auth=(utente, password),
+                timeout=TIMEOUT,
+                headers=INTESTAZIONI,
+            )
+        except requests.RequestException as exc:
+            ultimo = exc
+        else:
+            if risposta.status_code == 401:
+                raise ErroreFatale(
+                    "401 non autorizzato. Verifica WP_USER e rigenera l'application "
+                    "password. Attenzione: alcune configurazioni di sicurezza (o un "
+                    "plugin) possono bloccare l'autenticazione Basic sulle REST API."
+                )
+            if risposta.status_code == 403:
+                raise ErroreFatale(
+                    "403 vietato. L'utente esiste ma non ha i permessi per creare "
+                    "articoli, oppure un WAF sta filtrando la richiesta."
+                )
+            if risposta.status_code == 404:
+                raise ErroreFatale(
+                    f"404 su {endpoint}. Le REST API sembrano disattivate o l'URL base "
+                    "è errato (controlla WP_BASE_URL, es. presenza o assenza di www)."
+                )
+            if 400 <= risposta.status_code < 500:
+                raise ErroreFatale(
+                    f"WordPress ha risposto {risposta.status_code}: {risposta.text[:500]}"
+                )
+            if risposta.status_code >= 500:
+                ultimo = f"{risposta.status_code} dal server"
+            else:
+                try:
+                    return corpo_json(risposta, "Creazione dell'articolo")
+                except RispostaNonJson as exc:
+                    ultimo = exc
 
-    if risposta.status_code == 401:
-        raise ErroreFatale(
-            "401 non autorizzato. Verifica WP_USER e rigenera l'application password. "
-            "Attenzione: alcune configurazioni di sicurezza (o un plugin) possono "
-            "bloccare l'autenticazione Basic sulle REST API."
-        )
-    if risposta.status_code == 403:
-        raise ErroreFatale(
-            "403 vietato. L'utente esiste ma non ha i permessi per creare articoli, "
-            "oppure un WAF sta filtrando la richiesta."
-        )
-    if risposta.status_code == 404:
-        raise ErroreFatale(
-            f"404 su {endpoint}. Le REST API sembrano disattivate o l'URL base è errato "
-            "(controlla WP_BASE_URL, es. presenza o assenza di www)."
-        )
-    if risposta.status_code >= 300:
-        raise ErroreFatale(
-            f"WordPress ha risposto {risposta.status_code}: {risposta.text[:500]}"
-        )
+        if tentativo == RITENTATIVI:
+            break
 
-    try:
-        return risposta.json()
-    except ValueError as exc:
-        # Codice di successo ma corpo non JSON: tipicamente una pagina HTML
-        # restituita da un WAF, da un plugin di sicurezza o da uno strato di
-        # cache che si è interposto. L'articolo può essere stato creato lo
-        # stesso, quindi il messaggio invita a verificare invece di ripubblicare
-        # alla cieca: il controllo anti-duplicato rende comunque sicuro un nuovo
-        # tentativo.
-        raise ErroreFatale(
-            f"WordPress ha risposto {risposta.status_code} ma con un corpo non JSON "
-            f"({exc}). Content-Type: {risposta.headers.get('Content-Type', 'assente')}. "
-            f"Primi 300 caratteri: {risposta.text[:300]!r}. "
-            "Probabile intervento di un WAF, di un plugin di sicurezza o di uno strato "
-            "di cache. L'articolo potrebbe essere stato creato ugualmente: verificare "
-            "tra le bozze prima di intervenire."
-        ) from exc
+        attendi(tentativo, "Creazione dell'articolo", ultimo)
+
+        # Il passaggio che rende sicuro il ritentativo.
+        creato = articolo_esistente(meta, base_url, (utente, password))
+        if creato is not None:
+            print(
+                f"L'articolo risulta creato nonostante la risposta non valida "
+                f"(ID {creato['id']}, stato {creato['status']}): non lo ricreo."
+            )
+            return creato
+
+    raise ErroreFatale(
+        f"Creazione dell'articolo: {RITENTATIVI} tentativi falliti. Ultimo esito: "
+        f"{ultimo}. Se il corpo è una pagina HTML, è il firewall che intercetta le "
+        "chiamate REST: vedi docs/audit-tecnico-2026-10-01.md. L'articolo non "
+        "risultava creato all'ultimo controllo, quindi un nuovo run è sicuro."
+    )
 
 
 def aggiorna_foglio(meta: dict) -> str:
